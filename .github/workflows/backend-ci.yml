@@ -1,3 +1,4 @@
+---
 name: Backend CI/CD
 
 # ---
@@ -10,7 +11,7 @@ name: Backend CI/CD
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
     paths:
       - 'src/**'
       - 'tests/**'
@@ -18,7 +19,7 @@ on:
       - 'tsconfig.json'
       - '.github/workflows/backend-ci.yml'
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, develop]
     paths:
       - 'src/**'
       - 'tests/**'
@@ -37,23 +38,40 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  db-postgres-check:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ''
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y postgresql-client
+      - name: Postgres connection smoke test
+        if: env.DATABASE_URL != ''
+        run: |
+          echo "Probar conexión con psql (solo metadata)"
+          PSQL_URI="$DATABASE_URL"
+          psql "$PSQL_URI" -c 'SELECT 1;' || (echo "Fallo conexión a Postgres" && exit 1)
+        continue-on-error: true
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '18'
           cache: 'npm'
-      
+
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Run ESLint
         run: npm run lint --if-present
-      
+
       - name: Upload lint results
         if: always()
         uses: actions/upload-artifact@v3
@@ -85,25 +103,24 @@ jobs:
           --health-retries 5
         ports:
           - 6379:6379
-    
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '18'
           cache: 'npm'
-      
+
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Run tests
         run: npm test -- --coverage
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
           REDIS_URL: redis://localhost:6379
-      
+
       - name: Upload coverage
         uses: codecov/codecov-action@v3
         with:
@@ -113,22 +130,22 @@ jobs:
   build:
     runs-on: ubuntu-latest
     needs: [ lint, test ]
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '18'
           cache: 'npm'
-      
+
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Build
         run: npm run build
-      
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v3
         with:
@@ -139,24 +156,24 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
-    
+
     permissions:
       contents: read
       packages: write
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      
+
       - name: Log in to Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -167,7 +184,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha
-      
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
@@ -181,14 +198,14 @@ jobs:
   security-scan:
     runs-on: ubuntu-latest
     needs: build
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Run npm audit
         run: npm audit --audit-level=moderate
         continue-on-error: true
-      
+
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
@@ -196,7 +213,7 @@ jobs:
           scan-ref: '.'
           format: 'sarif'
           output: 'trivy-results.sarif'
-      
+
       - name: Upload Trivy results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v2
         if: always()
